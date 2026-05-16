@@ -3,4 +3,5 @@ numpy
 jupyter
 clingo
 sqlite-utils
-
+flask
+flask-cors
