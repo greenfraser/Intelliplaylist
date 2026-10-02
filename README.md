@@ -1,28 +1,70 @@
-# Dissertation – Spotify Playlist Generator with ASP
+# IntelliPlaylist
 
-## Overview
+*A Smart Assistant for Personalised Music Playlists using Answer Set Programming and Natural Language Processing*
 
-- Uses a large Spotify tracks dataset.
-- Stores data in a SQLite database.
-- Uses Answer Set Programming (ASP) to generate playlists based on user requests.
-- Simple NLP layer maps natural language requests to ASP constraints.
+IntelliPlaylist turns a plain-English request such as *"something upbeat for a morning run, no explicit tracks"* into a playlist that satisfies every constraint in it. A language model interprets the request, and an Answer Set Programming (ASP) solver selects the tracks, so every song in the playlist can be traced back to a rule it satisfies.
 
-## Project layout
+Final-year BSc Computer Science dissertation, University of Sheffield, awarded a First.
 
-- `data/` – raw, processed data and the SQLite database.
-- `sql/` – SQL schema(s).
-- `src/` – Python package with:
-  - `data/` – database access, loading.
-  - `asp/` – fact generation, ASP rules, solver integration.
-  - `nlp/` – intent parsing and mapping to constraints.
-  - `ui/` – endpoints or logic for displaying playlists.
-- `scripts/` – one-off scripts (importing data, etc.).
-- `notebooks/` – experiments, EDA.
+<!-- Add a screenshot: save it as docs/screenshot.png and uncomment the line below -->
+<!-- ![IntelliPlaylist screenshot](docs/screenshot.png) -->
 
-## Setup
+## How it works
+
+1. **Request parsing (NLP).** The user's request is sent to the OpenAI API, which extracts structured constraints (mood/emotion, genre, energy, tempo, explicit content, length) into a fixed schema.
+2. **Fact generation.** Candidate tracks from a SQLite database of Spotify tracks and their audio features are converted into ASP facts.
+3. **Solving (ASP).** Clingo combines those facts with hand-written rules that map emotions to audio features and enforce the user's constraints, then returns an optimal playlist.
+4. **Interface.** A Flask API serves results to a React frontend.
+
+Separating interpretation (LLM) from selection (ASP) means the playlist is explainable and guaranteed to satisfy the stated constraints, rather than being whatever a language model happens to suggest.
+
+## Tech stack
+
+- **Reasoning:** Answer Set Programming with [Clingo](https://potassco.org/clingo/)
+- **NLP:** OpenAI API
+- **Backend:** Python, Flask, SQLite
+- **Frontend:** React, TypeScript, Vite
+
+## Project structure
+
+```
+backend/      Flask API
+frontend/     React + TypeScript interface
+src/
+  asp/        Fact generation, ASP rules (rules/*.lp) and Clingo solver integration
+  nlp/        Request parsing, emotion mapping and the request schema
+  data/       Database access
+scripts/      Data import scripts
+sql/          Database schema
+```
+
+## Running locally
+
+**1. Data.** Download the Spotify Tracks dataset from Kaggle and place it at `data/raw/dataset.csv`, then build the database:
+
+```bash
+python scripts/import_spotify.py
+```
+
+**2. Backend**
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+export OPENAI_API_KEY=your-key-here
+python backend/app.py
+```
 
+**3. Frontend**
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+## Dissertation
+
+The full write-up is available on request.
+<!-- Or upload the PDF to docs/ and replace the line above with: [Read the dissertation (PDF)](docs/dissertation.pdf) -->
