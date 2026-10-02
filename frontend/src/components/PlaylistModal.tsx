@@ -1,6 +1,10 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { PlaylistRequest } from "../types/playlist";
 
+// Modal component used to get a natural-language playlist request.
+// It allows the user to type their prompt, close the modal, and start playlist generation.
+
+
 type PlaylistModalProps = {
   onClose: () => void;
   onGenerate: () => Promise<void>;
@@ -9,6 +13,7 @@ type PlaylistModalProps = {
   isBusy?: boolean;
 };
 
+// Renders the playlist request modal and disables generation while the app is busy.
 export default function PlaylistModal({
   onClose,
   onGenerate,

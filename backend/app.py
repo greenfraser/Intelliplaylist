@@ -6,18 +6,14 @@ import re
 import secrets
 import sys
 import time
+import requests
 from pathlib import Path
 from typing import Any, Iterable, Optional
 from urllib.parse import urlencode
-
-
-import requests
 from flask import Flask, jsonify, redirect, request, session
 from flask_cors import CORS
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
-
 from src.data.db import (
     has_track_column,
     has_artist_match,
@@ -28,6 +24,10 @@ from src.nlp.openai_llm_parser import openai_llm_callable
 from src.nlp.request_parser import parse_playlist_request
 from src.nlp.request_schema import PlaylistRequest
 from src.asp.playlist import build_playlist_with_metadata
+
+# Flask backend for IntelliPlaylist.
+# This file exposes API routes for parsing playlist requests, generating playlists,
+# handling Spotify OAuth, and exporting generated playlists to Spotify.
 
 DEFAULT_MIN_POPULARITY = 70
 SPOTIFY_ACCOUNT_BASE = "https://accounts.spotify.com"
@@ -40,7 +40,7 @@ SPOTIFY_REDIRECT_URI = os.environ.get(
 )
 SPOTIFY_OAUTH_STATES: set[str] = set()
 
-
+# Checks whether the request contains any specific user constraints.
 def _has_specific_filters(request_obj: PlaylistRequest) -> bool:
     return bool(
         request_obj.include_genres
@@ -69,6 +69,7 @@ def _has_specific_filters(request_obj: PlaylistRequest) -> bool:
         or request_obj.exclude_christmas
     )
 
+# Removes request constraints that are not supported by the current database schema.
 def strip_unsupported_database_constraints(request_obj: PlaylistRequest) -> PlaylistRequest:
     if not has_track_column("year"):
         request_obj.year = None
@@ -77,6 +78,7 @@ def strip_unsupported_database_constraints(request_obj: PlaylistRequest) -> Play
 
     return request_obj
 
+# Applies default request values before playlist generation.
 def apply_request_defaults(request_obj: PlaylistRequest) -> PlaylistRequest:
     has_required_track = bool(request_obj.include_tracks)
 
@@ -91,9 +93,7 @@ def apply_request_defaults(request_obj: PlaylistRequest) -> PlaylistRequest:
 
     return request_obj
 
-
-
-
+# Converts a database track row into the JSON format expected by the frontend.
 def row_to_dict(row: tuple[Any, ...]) -> dict[str, Any]:
     return {
         "id": row[0],
@@ -115,20 +115,20 @@ def row_to_dict(row: tuple[Any, ...]) -> dict[str, Any]:
         "genre": row[16] or "",
     }
 
-
+# Reads and cleans an environment variable.
 def _env(name: str) -> str:
     return os.environ.get(name, "").strip()
 
-
+# Checks whether the required Spotify API credentials are available.
 def _spotify_credentials_ready() -> bool:
     return bool(_env("SPOTIFY_CLIENT_ID") and _env("SPOTIFY_CLIENT_SECRET"))
 
-
+# Builds the HTTP Basic authentication header required by Spotify.
 def _spotify_basic_auth_header() -> str:
     raw = f"{_env('SPOTIFY_CLIENT_ID')}:{_env('SPOTIFY_CLIENT_SECRET')}".encode("utf-8")
     return "Basic " + base64.b64encode(raw).decode("ascii")
 
-
+# Builds the Spotify OAuth login URL used to connect the user's account.
 def _build_spotify_auth_url() -> str:
     if not _spotify_credentials_ready():
         raise RuntimeError(
@@ -137,7 +137,6 @@ def _build_spotify_auth_url() -> str:
 
     state = secrets.token_urlsafe(24)
 
-    # Store in both places. The in-memory set is more reliable for local dev.
     session["spotify_oauth_state"] = state
     SPOTIFY_OAUTH_STATES.add(state)
 
@@ -152,6 +151,7 @@ def _build_spotify_auth_url() -> str:
 
     return f"{SPOTIFY_ACCOUNT_BASE}/authorize?{urlencode(params)}"
 
+# Stores Spotify access and refresh tokens in the Flask session.
 def _save_spotify_tokens(token_payload: dict[str, Any]) -> None:
     access_token = str(token_payload.get("access_token") or "")
     refresh_token = str(
@@ -167,7 +167,7 @@ def _save_spotify_tokens(token_payload: dict[str, Any]) -> None:
         "expires_at": time.time() + expires_in - 60,
     }
 
-
+# Exchanges the Spotify OAuth callback code for access and refresh tokens.
 def _exchange_spotify_code_for_tokens(code: str) -> None:
     response = requests.post(
         f"{SPOTIFY_ACCOUNT_BASE}/api/token",
@@ -185,7 +185,7 @@ def _exchange_spotify_code_for_tokens(code: str) -> None:
 
     _save_spotify_tokens(response.json())
 
-
+# Refreshes the Spotify access token when the existing one has expired.
 def _refresh_spotify_access_token() -> Optional[str]:
     tokens = session.get("spotify_tokens") or {}
     refresh_token = str(tokens.get("refresh_token") or "")
@@ -209,7 +209,7 @@ def _refresh_spotify_access_token() -> Optional[str]:
     _save_spotify_tokens(response.json())
     return str(session["spotify_tokens"].get("access_token") or "")
 
-
+# Returns a valid Spotify access token if the user is connected.
 def _get_spotify_access_token() -> Optional[str]:
     tokens = session.get("spotify_tokens") or {}
     access_token = str(tokens.get("access_token") or "")
@@ -223,7 +223,7 @@ def _get_spotify_access_token() -> Optional[str]:
 
     return access_token
 
-
+# Sends an authenticated request to the Spotify Web API.
 def _spotify_request(
     method: str,
     path: str,
@@ -252,7 +252,7 @@ def _spotify_request(
 
     return response.json()
 
-
+# Extracts the first artist name from a stored artist string.
 def _first_artist(artists: object) -> str:
     text = str(artists or "").strip()
     if not text:
@@ -263,6 +263,7 @@ def _first_artist(artists: object) -> str:
     parts = re.split(r";|,|\s+feat\.?\s+|\s+ft\.?\s+", text, maxsplit=1, flags=re.IGNORECASE)
     return parts[0].strip()
 
+# Formats missing database matches for user-facing validation messages.
 def _format_missing(label: str, values: list[str]) -> str:
     if not values:
         return ""
@@ -270,7 +271,7 @@ def _format_missing(label: str, values: list[str]) -> str:
     quoted = ", ".join(f"“{value}”" for value in values)
     return f"{label}: {quoted}"
 
-
+# Validates included and excluded artists, albums, and tracks against the database.
 def validate_request_against_database(
     request_obj: PlaylistRequest,
 ) -> tuple[list[str], list[str]]:
@@ -334,7 +335,7 @@ def validate_request_against_database(
 
     return errors, warnings
 
-
+# Searches Spotify for a generated track and returns the best matching Spotify result.
 def _search_spotify_track(token: str, track: dict[str, Any]) -> Optional[dict[str, str]]:
     name = str(track.get("name") or "").strip()
     artists = str(track.get("artists") or "").strip()
@@ -384,11 +385,13 @@ def _search_spotify_track(token: str, track: dict[str, Any]) -> Optional[dict[st
     return None
 
 
+# Splits a list into smaller batches for Spotify API requests.
 def _chunks(values: list[str], size: int) -> Iterable[list[str]]:
     for index in range(0, len(values), size):
         yield values[index:index + size]
 
 
+# Creates and configures the Flask application.
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-intelliplaylist-secret-change-me")
 app.config.update(
@@ -403,16 +406,17 @@ CORS(
 )
 
 
+# Simple health-check endpoint used to confirm that the backend is running.
 @app.get("/api/health")
 def health() -> tuple[dict[str, str], int]:
     return {"status": "ok"}, 200
 
-
+# Returns whether the user currently has an active Spotify connection.
 @app.get("/api/spotify/status")
 def spotify_status():
     return jsonify({"connected": _get_spotify_access_token() is not None})
 
-
+# Starts the Spotify login flow by returning an OAuth authorisation URL.
 @app.get("/api/spotify/login")
 def spotify_login():
     try:
@@ -421,6 +425,7 @@ def spotify_login():
         return jsonify({"error": str(exc)}), 500
 
 
+# Handles the Spotify OAuth callback and stores the user's Spotify tokens.
 @app.get("/api/spotify/callback")
 def spotify_callback():
     error = request.args.get("error")
@@ -451,6 +456,7 @@ def spotify_callback():
         return redirect(f"{FRONTEND_URL}?spotify=token-error")
 
 
+# Parses a natural-language playlist request into structured constraints.
 @app.post("/api/parse-request")
 def parse_request():
     try:
@@ -474,6 +480,7 @@ def parse_request():
         return jsonify({"error": f"Failed to parse request: {exc}"}), 500
 
 
+# Generates a playlist from the parsed request and returns it to the frontend.
 @app.post("/api/generate-playlist")
 def generate_playlist():
     print("\n[API] /api/generate-playlist route entered", flush=True)
@@ -528,6 +535,7 @@ def generate_playlist():
         return jsonify({"error": f"Failed to generate playlist: {exc}"}), 500
 
 
+# Exports the generated playlist to the user's Spotify account.
 @app.post("/api/export-spotify")
 def export_spotify_playlist():
     try:
@@ -615,5 +623,6 @@ def export_spotify_playlist():
         return jsonify({"error": f"Failed to export playlist to Spotify: {exc}"}), 500
 
 
+# Runs the Flask development server when this file is executed directly.
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5001, debug=True, use_reloader=False)

@@ -11,7 +11,6 @@ from src.data.db import (
     Range,
     TrackRow,
     get_candidates_for_feature_ranges,
-    get_random_tracks,
     get_tracks_by_ids,
     get_tracks_by_names,
     get_tracks_for_albums,
@@ -21,6 +20,10 @@ from src.nlp.emotions import compute_feature_ranges, text_to_emotion_weights
 from src.nlp.request_schema import PlaylistRequest
 from src.asp.facts import write_rows_to_facts
 from src.asp.solver import run_clingo
+
+# Core playlist-building logic for IntelliPlaylist.
+# This file turns a parsed PlaylistRequest into database candidates, ASP facts,
+# solver output, fallback selections, and a final ordered playlist.
 
 _ACTIVITY_PRESETS: Dict[str, Dict[str, Range]] = {
     "workout": {
@@ -52,18 +55,19 @@ _ACTIVITY_PRESETS: Dict[str, Dict[str, Range]] = {
 }
 
 
+# Stores the generated playlist rows and any user-facing generation note.
 @dataclass
 class PlaylistBuildResult:
     rows: List[TrackRow]
     generation_note: Optional[str] = None
 
-
+# Returns the midpoint of a range, or a default value if no range is provided.
 def _midpoint(rng: Optional[Range], default: float) -> float:
     if rng is None:
         return default
     return (rng[0] + rng[1]) / 2.0
 
-
+# Converts a database row into a dictionary so feature distances can be calculated.
 def _row_to_track(row: TrackRow) -> Dict[str, Any]:
     return {
         "id": row[0],
@@ -87,6 +91,7 @@ def _row_to_track(row: TrackRow) -> Dict[str, Any]:
     }
 
 
+# Builds the target audio-feature profile from the resolved feature ranges.
 def _target_profile(ranges: Dict[str, Optional[Range]]) -> Dict[str, float]:
     return {
         "valence": _midpoint(ranges.get("valence"), 0.5),
@@ -99,7 +104,7 @@ def _target_profile(ranges: Dict[str, Optional[Range]]) -> Dict[str, float]:
         "speechiness": _midpoint(ranges.get("speechiness"), 0.5),
     }
 
-
+# Calculates how closely a track matches the target audio-feature profile.
 def _distance_to_target(track: Dict[str, Any], target: Dict[str, float]) -> float:
     score = (
         abs(track["tempo"] - target["tempo"]) / 40.0
@@ -113,7 +118,7 @@ def _distance_to_target(track: Dict[str, Any], target: Dict[str, float]) -> floa
     )
     return score
 
-
+# Calculates the transition cost between two neighbouring tracks.
 def _transition_cost(
     prev_track: Dict[str, Any],
     next_track: Dict[str, Any],
@@ -137,6 +142,7 @@ def _transition_cost(
     return cost
 
 
+# Orders selected tracks greedily to produce smoother transitions.
 def _order_tracks_greedily(
     rows: List[TrackRow],
     playlist_size: int,
@@ -182,19 +188,7 @@ def _order_tracks_greedily(
     return [t["row"] for t in ordered]
 
 
-def build_emotion_playlist(
-    description: str,
-    playlist_size: int = 10,
-    debug: bool = False,
-) -> List[TrackRow]:
-    request = PlaylistRequest(
-        original_text=description,
-        playlist_size=playlist_size,
-        ordering_style="smooth",
-    )
-    return build_playlist_from_request(request, debug=debug)
-
-
+# Checks whether a requested genre or style term exists in the database.
 def _term_has_genre_or_text_matches(term: str) -> bool:
     cleaned = term.strip()
     if not cleaned:
@@ -247,6 +241,7 @@ def _term_has_genre_or_text_matches(term: str) -> bool:
     return bool(text_rows)
 
 
+# Removes requested genre/style terms that cannot be matched in the database.
 def _remove_unavailable_genre_terms(
     request: PlaylistRequest,
 ) -> tuple[PlaylistRequest, List[str]]:
@@ -271,6 +266,7 @@ def _remove_unavailable_genre_terms(
     return updated_request, missing_terms
 
 
+# Creates a user-facing note for genre/style terms that were ignored.
 def _format_unavailable_terms_note(terms: List[str]) -> Optional[str]:
     if not terms:
         return None
@@ -284,11 +280,12 @@ def _format_unavailable_terms_note(terms: List[str]) -> Optional[str]:
         f"in the database, so I ignored {pronoun} and used the remaining constraints."
     )
 
-
+# Combines multiple generation notes into one message.
 def _combine_generation_notes(*notes: Optional[str]) -> Optional[str]:
     cleaned = [note.strip() for note in notes if note and note.strip()]
     return " ".join(cleaned) if cleaned else None
 
+# Builds a playlist and applies relaxation steps if the strict request is too restrictive.
 def build_playlist_with_metadata(
     request: PlaylistRequest,
     debug: bool = False,
@@ -347,18 +344,17 @@ def build_playlist_with_metadata(
             )
 
     if best_rows:
-        if best_rows:
-            return PlaylistBuildResult(
-                rows=best_rows[:track_count],
-                generation_note=_combine_generation_notes(
-                    unavailable_note,
-                    (
-                        f"I could only find {len(best_rows)} track"
-                        f"{'s' if len(best_rows) != 1 else ''} satisfying the hard constraints"
-                        + (f"; I only relaxed mood/audio constraints. I {best_note}." if best_note else ".")
-                    ),
+        return PlaylistBuildResult(
+            rows=best_rows[:track_count],
+            generation_note=_combine_generation_notes(
+                unavailable_note,
+                (
+                    f"I could only find {len(best_rows)} track"
+                    f"{'s' if len(best_rows) != 1 else ''} satisfying the hard constraints"
+                    + (f"; I only relaxed mood/audio constraints. I {best_note}." if best_note else ".")
                 ),
-            )
+            ),
+        )
 
     return PlaylistBuildResult(
         rows=[],
@@ -369,6 +365,7 @@ def build_playlist_with_metadata(
     )
 
 
+# Convenience wrapper that returns only the generated track rows.
 def build_playlist_from_request(
     request: PlaylistRequest,
     debug: bool = False,
@@ -376,6 +373,7 @@ def build_playlist_from_request(
     return build_playlist_with_metadata(request, debug=debug).rows
 
 
+# Runs one playlist-building attempt using the current request constraints.
 def _build_playlist_once(
     request: PlaylistRequest,
     debug: bool = False,
@@ -392,10 +390,6 @@ def _build_playlist_once(
         if debug:
             print("[ROUTE] Using large playlist fast path because track_count >= 25", flush=True)
         return _build_large_playlist_fast(request, track_count, debug)
-    if debug:
-        print("\n========== PLAYLIST REQUEST PIPELINE ==========")
-        print("[INPUT] Original text:", repr(request.original_text))
-        print("[INPUT] Parsed request:", request.to_dict())
 
     ranges = _resolve_feature_ranges(request, debug=debug)
     target = _target_profile(ranges)
@@ -557,6 +551,8 @@ def _build_playlist_once(
 
     return ordered_rows
 
+
+# Uses a faster candidate-selection path for larger playlists.
 def _build_large_playlist_fast(request, track_count, debug=False):
     ranges = _resolve_feature_ranges(request, debug=debug)
     target = _target_profile(ranges)
@@ -613,6 +609,7 @@ def _build_large_playlist_fast(request, track_count, debug=False):
         artist_cooldown=request.resolved_artist_gap(track_count),
     )
 
+# Keeps required seed tracks and fills the remaining playlist slots with best matches.
 def _select_with_required_seed_rows(
     rows: List[TrackRow],
     seed_rows: List[TrackRow],
@@ -635,13 +632,15 @@ def _select_with_required_seed_rows(
 
     return _merge_unique_rows(seed_rows, filler_rows)
 
+
+# Creates a relaxed copy of the request with a lower minimum popularity threshold.
 def _with_lower_min_popularity(request: PlaylistRequest, amount: int) -> PlaylistRequest:
     relaxed = replace(request)
     if relaxed.min_popularity is not None:
         relaxed.min_popularity = max(0, relaxed.min_popularity - amount)
     return relaxed
 
-
+# Creates a relaxed copy of the request with mood and audio-feature constraints removed.
 def _with_relaxed_mood_constraints(request: PlaylistRequest) -> PlaylistRequest:
     relaxed = replace(request)
     relaxed.activity = None
@@ -658,6 +657,8 @@ def _with_relaxed_mood_constraints(request: PlaylistRequest) -> PlaylistRequest:
     setattr(relaxed, "_ignore_original_emotion_text", True)
     return relaxed
 
+
+# Resolves final feature ranges from explicit ranges, emotion weights, and activity presets.
 def _resolve_feature_ranges(request: PlaylistRequest, debug: bool = False) -> Dict[str, Optional[Range]]:
     emotion_text: Optional[str] = None
 
@@ -699,7 +700,7 @@ def _resolve_feature_ranges(request: PlaylistRequest, debug: bool = False) -> Di
 
     return ranges
 
-
+# Retrieves seed rows for explicitly included artists, albums, and tracks.
 def _get_include_rows(
     request: PlaylistRequest,
     ranges: Dict[str, Optional[Range]],
@@ -753,10 +754,6 @@ def _get_include_rows(
     seed_broad_kwargs = dict(
         common_broad_kwargs,
 
-        # Explicit includes are hard user requirements.
-        # They should not have to satisfy genre/style, title-term,
-        # mood/audio, or popularity filters.
-        include_genres=None,
         exclude_genres=request.exclude_genres,
 
         include_title_terms=None,
@@ -826,6 +823,7 @@ def _get_include_rows(
     return _merge_unique_rows(*groups)
 
 
+# Chooses the best matching database row for each requested name.
 def _choose_best_per_requested_name(
     requested_names: List[str],
     rows: List[TrackRow],
@@ -861,6 +859,7 @@ def _choose_best_per_requested_name(
 
     return chosen
 
+# Randomly selects a small pool of suitable tracks for each requested artist.
 def _choose_random_pool_per_requested_artist(
     requested_artists: List[str],
     rows: List[TrackRow],
@@ -895,6 +894,7 @@ def _choose_random_pool_per_requested_artist(
 
     return chosen
 
+# Merges track row lists while removing duplicate track IDs.
 def _merge_unique_rows(*groups: List[TrackRow]) -> List[TrackRow]:
     rows: List[TrackRow] = []
     seen_ids = set()
@@ -907,6 +907,7 @@ def _merge_unique_rows(*groups: List[TrackRow]) -> List[TrackRow]:
     return rows
 
 
+# Retrieves broader fallback candidates when strict filtering returns too few tracks.
 def _get_broad_fallback_candidates(request: PlaylistRequest, track_count: int) -> List[TrackRow]:
     return get_candidates_for_feature_ranges(
         valence_range=(0.0, 1.0),
@@ -949,6 +950,7 @@ TEXT_FALLBACK_BLOCKLIST = {
     "soul",
 }
 
+# Searches requested style terms as metadata text when they are not real database genres.
 def _get_text_term_fallback_candidates(
     request: PlaylistRequest,
     track_count: int,
@@ -974,12 +976,9 @@ def _get_text_term_fallback_candidates(
 
         include_title_terms=request.include_title_terms,
         exclude_title_terms=request.exclude_title_terms,
-
-        # Important: do not keep the failed genre-column filter here.
         include_genres=None,
         exclude_genres=request.exclude_genres,
 
-        # Search the requested phrase across name, album, artist, and genre.
         include_text_terms=text_terms,
 
         min_popularity=request.min_popularity,
@@ -995,6 +994,8 @@ def _get_text_term_fallback_candidates(
         limit=max(track_count * 5, 80),
     )
 
+
+# Builds a balanced candidate pool when the request includes multiple genre/style terms.
 def _get_balanced_genre_term_candidates(
     request: PlaylistRequest,
     ranges: Dict[str, Optional[Range]],
@@ -1007,12 +1008,10 @@ def _get_balanced_genre_term_candidates(
     per_term_limit = max(20, track_count * 4)
     groups: List[List[TrackRow]] = []
 
-    found_real_genre = False
     found_text_term = False
     had_text_term_candidate = False
 
     for term in terms:
-        # 1. Try the term as a real database genre first.
         genre_rows = get_candidates_for_feature_ranges(
             valence_range=ranges["valence"],
             energy_range=ranges["energy"],
@@ -1052,8 +1051,7 @@ def _get_balanced_genre_term_candidates(
         if term.strip().lower() in TEXT_FALLBACK_BLOCKLIST:
             continue
 
-        # 2. If it is not a real genre, try it as a title/album/artist/genre text phrase.
-        had_text_term_candidate = True
+    
 
         text_rows = get_candidates_for_feature_ranges(
             valence_range=ranges["valence"],
@@ -1088,8 +1086,6 @@ def _get_balanced_genre_term_candidates(
         )
 
         if not text_rows:
-            # If the text phrase exists in the DB but not under the strict mood/audio
-            # filters, keep it available as a style representative.
             text_rows = get_candidates_for_feature_ranges(
                 valence_range=(0.0, 1.0),
                 energy_range=(0.0, 1.0),
@@ -1129,12 +1125,10 @@ def _get_balanced_genre_term_candidates(
     if not groups:
         return []
 
-    # If the request had non-genre terms like "string quartet" / "uk drill",
-    # do not allow the playlist to become only pop just because pop exists.
+
     if had_text_term_candidate and not found_text_term:
         return []
 
-    # Interleave groups so one broad term like "pop" does not dominate.
     balanced: List[TrackRow] = []
     seen_ids = set()
 
@@ -1155,10 +1149,12 @@ def _get_balanced_genre_term_candidates(
                 return balanced
 
     return balanced
+
+#Decides how many seed tracks should represent each title or style term.
 def _coverage_seed_count(track_count: int) -> int:
     return max(2, min(4, track_count // 3))
 
-
+# Ranks rows by closeness to the target profile, with a small popularity bonus.
 def _rank_rows_for_request(
     rows: List[TrackRow],
     target: Dict[str, float],
@@ -1171,6 +1167,7 @@ def _rank_rows_for_request(
         ),
     )
 
+# Retrieves seed tracks for requested title terms.
 def _get_title_term_seed_rows(
     request: PlaylistRequest,
     ranges: Dict[str, Optional[Range]],
@@ -1216,6 +1213,8 @@ def _get_title_term_seed_rows(
 
     return seed_rows
 
+
+# Retrieves rows for one requested title term using strict or broad matching.
 def _get_rows_for_one_title_term(
     request: PlaylistRequest,
     term: str,
@@ -1261,11 +1260,10 @@ def _get_rows_for_one_title_term(
         include_tracks=None,
         exclude_tracks=request.exclude_tracks,
 
-        # This is the key: title-term seed only needs the title term.
         include_title_terms=[term],
         exclude_title_terms=request.exclude_title_terms,
 
-        # Do not also force rap/pop/etc. here.
+
         include_genres=None,
         exclude_genres=request.exclude_genres,
 
@@ -1281,6 +1279,9 @@ def _get_rows_for_one_title_term(
         duration_range_ms=request.duration_range_ms,
         limit=30,
     )
+
+
+# Retrieves seed tracks for requested genre or style terms.
 def _get_style_term_seed_rows(
     request: PlaylistRequest,
     ranges: Dict[str, Optional[Range]],
@@ -1326,6 +1327,8 @@ def _get_style_term_seed_rows(
 
     return seed_rows
 
+
+# Retrieves rows for one requested genre/style term using genre or metadata matching.
 def _get_rows_for_one_style_term(
     request: PlaylistRequest,
     term: str,
@@ -1356,7 +1359,7 @@ def _get_rows_for_one_style_term(
         min_popularity = request.min_popularity
         max_popularity = request.max_popularity
 
-    # First try as a real database genre.
+ 
     genre_rows = get_candidates_for_feature_ranges(
         valence_range=valence_range,
         energy_range=energy_range,
@@ -1391,11 +1394,10 @@ def _get_rows_for_one_style_term(
     if genre_rows:
         return genre_rows
 
-    # Broad real genres like "pop" should not become metadata text searches.
     if term.strip().lower() in TEXT_FALLBACK_BLOCKLIST:
         return []
 
-    # Then try as title / album / artist / genre metadata.
+
     return get_candidates_for_feature_ranges(
         valence_range=valence_range,
         energy_range=energy_range,
@@ -1426,6 +1428,8 @@ def _get_rows_for_one_style_term(
         limit=30,
     )
 
+
+# Finds the ASP rules file used by clingo.
 def _resolve_rules_path() -> Path:
     here = Path(__file__).resolve().parent
     candidates = [
@@ -1439,14 +1443,17 @@ def _resolve_rules_path() -> Path:
     raise FileNotFoundError("Could not find emotion_playlist.lp")
 
 
+# Fetches full database rows for the track IDs selected by the solver.
 def _fetch_rows_by_ids(track_ids: List[str]) -> List[TrackRow]:
     return get_tracks_by_ids(track_ids)
 
 
+# Selects the best fallback tracks when the ASP solver does not return a result.
 def _fallback_select(rows: List[TrackRow], track_count: int, target: Dict[str, float]) -> List[TrackRow]:
     ordered = sorted(rows, key=lambda row: _rank_rows_for_request(rows, target))
     return ordered[:track_count]
 
+# Retrieves explicitly required tracks while ignoring mood and popularity filters.
 def _get_required_track_rows(
     request: PlaylistRequest,
     target: Dict[str, float],
@@ -1454,7 +1461,6 @@ def _get_required_track_rows(
     if not request.include_tracks:
         return []
 
-    # Required songs should ignore mood/popularity defaults.
     rows = get_tracks_by_names(
         request.include_tracks,
         limit_per_name=20,
@@ -1500,33 +1506,7 @@ def _get_required_track_rows(
         field_index=1,
     )
 
-
-def _select_with_required_tracks(
-    rows: List[TrackRow],
-    required_rows: List[TrackRow],
-    track_count: int,
-    target: Dict[str, float],
-) -> List[TrackRow]:
-    required_rows = _merge_unique_rows(required_rows)
-
-    if len(required_rows) > track_count:
-        raise ValueError(
-            f"The request includes {len(required_rows)} required tracks, "
-            f"but the playlist size is only {track_count}."
-        )
-
-    required_ids = {row[0] for row in required_rows}
-    remaining_rows = [row for row in rows if row[0] not in required_ids]
-
-    filler_rows = _fallback_select(
-        remaining_rows,
-        track_count - len(required_rows),
-        target,
-    )
-
-    return _merge_unique_rows(required_rows, filler_rows)
-
-
+# Prints the final playlist and feature values for debugging.
 def _debug_print_playlist(rows: List[TrackRow], title: str) -> None:
     print(f"\n{title}")
     print("=" * len(title))
@@ -1540,6 +1520,7 @@ def _debug_print_playlist(rows: List[TrackRow], title: str) -> None:
         )
 
 
+# Splits a stored artist string into individual lowercase artist names.
 def _split_artist_names(value: object) -> List[str]:
     text = str(value or "").strip()
     if not text:
@@ -1561,7 +1542,7 @@ def _split_artist_names(value: object) -> List[str]:
 
     return [text.lower()]
 
-
+# Checks whether a requested artist exactly matches one of a track's artists.
 def _artist_exact_match(requested_artist: str, artists_value: object) -> bool:
     requested = requested_artist.strip().lower()
     if not requested:

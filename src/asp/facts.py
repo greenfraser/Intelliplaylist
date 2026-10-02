@@ -7,10 +7,14 @@ from typing import Iterable, List, Optional, Sequence
 from src.data.db import TrackRow
 from src.nlp.request_schema import PlaylistRequest, Range
 
+# Converts database track rows and parsed playlist constraints into ASP facts.
+# These facts are written to a .lp file so that clingo can reason over the
+# candidate tracks and select a playlist.
+
 FACTS_DIR = Path(__file__).resolve().parent / "asp_facts"
 FACTS_DIR.mkdir(parents=True, exist_ok=True)
 
-
+# Converts candidate database rows into song/12 and performer/2 ASP facts.
 def rows_to_facts(rows: Iterable[TrackRow]) -> str:
     lines: List[str] = []
 
@@ -43,6 +47,7 @@ def rows_to_facts(rows: Iterable[TrackRow]) -> str:
     return "\n".join(lines)
 
 
+# Converts the target feature ranges into ASP facts for valence, energy, and tempo.
 def targets_to_facts(
     valence_range: Range,
     energy_range: Range,
@@ -60,7 +65,8 @@ def targets_to_facts(
         ]
     )
 
-
+# Converts request-specific constraints into ASP facts such as required artists,
+# banned artists, required tracks, banned tracks, and matching relationships.
 def request_to_facts(
     request: PlaylistRequest,
     rows: Sequence[TrackRow],
@@ -141,6 +147,7 @@ def request_to_facts(
     return "\n".join(lines)
 
 
+# Writes all generated ASP facts for the current playlist request to a .lp file.
 def write_rows_to_facts(
     rows: Sequence[TrackRow],
     request: PlaylistRequest,
@@ -183,6 +190,7 @@ def write_rows_to_facts(
     return out_path
 
 
+# Splits a stored artist string into individual artist names.
 def _split_artists(value: object) -> List[str]:
     text = str(value or "").strip()
     if not text:
@@ -205,10 +213,12 @@ def _split_artists(value: object) -> List[str]:
     return [text]
 
 
+# Escapes text so it can be safely written inside ASP string facts.
 def _esc(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
+# Checks whether a requested artist exactly matches one of the artists on a track.
 def _artist_exact_match(requested_artist: str, artists_value: object) -> bool:
     requested = requested_artist.strip().lower()
     if not requested:

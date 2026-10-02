@@ -1,9 +1,14 @@
+// Header component for the main page.
+// Displays the app title, a short description, and the button used to open
+// the playlist request modal.
+
 type HeaderProps = {
   onNewPlaylist: () => void;
   onGeneratePlaylist: () => void;
   isBusy?: boolean;
 };
 
+// Renders the top page header and disables the main action button while the app is busy.
 export default function Header({
   onNewPlaylist,
   isBusy = false,

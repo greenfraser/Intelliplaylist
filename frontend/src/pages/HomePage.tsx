@@ -11,6 +11,11 @@ import {
 } from "../services/api";
 import type { PlaylistRequest, PlaylistTrack } from "../types/playlist";
 
+// Main page component for the system.
+// It manages the full frontend playlist workflow, including request parsing,
+// playlist generation, track locking/replacement/removal, parsed constraint display,
+// and Spotify export.
+
 const EMPTY_REQUEST: PlaylistRequest = {
   original_text: "",
   emotions: [],
@@ -68,6 +73,7 @@ type PendingSpotifyExport = {
   tracks: PlaylistTrack[];
 };
 
+// Checks whether a parsed request contains any user-specified playlist constraints.
 function hasRequestContent(request: PlaylistRequest): boolean {
   return Boolean(
     request.original_text.trim() ||
@@ -110,6 +116,7 @@ function hasRequestContent(request: PlaylistRequest): boolean {
   );
 }
 
+// Creates a default Spotify playlist name from the user's original request.
 function buildSpotifyPlaylistName(request: PlaylistRequest): string {
   const prompt = request.original_text.trim();
   if (!prompt) return "IntelliPlaylist";
@@ -118,14 +125,14 @@ function buildSpotifyPlaylistName(request: PlaylistRequest): string {
   return `IntelliPlaylist - ${shortened}`;
 }
 
+// Removes duplicate or empty strings while preserving the remaining values.
 function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.filter((value) => value.trim())));
 }
-
+// Renders the main IntelliPlaylist page and controls the playlist generation state.
 export default function HomePage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
   const [isSpotifyNameModalOpen, setIsSpotifyNameModalOpen] = useState(false);
   const [spotifyPlaylistNameDraft, setSpotifyPlaylistNameDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -204,12 +211,14 @@ export default function HomePage() {
   }, []);
 
 
+  // Opens the request modal and prepares the draft request shown to the user.
   function handleOpenModal() {
     setDraftRequest(hasRequestContent(parsedRequest) ? { ...parsedRequest } : { ...EMPTY_REQUEST });
     setError(null);
     setIsModalOpen(true);
   }
 
+  // Parses the user's modal input, generates a playlist, and updates the page state.
   async function handleGenerateFromModal() {
     if (!draftRequest.original_text.trim()) {
       setError("Please enter a playlist request first.");
@@ -238,6 +247,7 @@ export default function HomePage() {
     }
   }
 
+  // Regenerates the playlist while preserving any tracks the user has locked.
   async function handleGenerateFromHeader() {
     if (!canGenerate) {
       setError("Create or parse a playlist request first.");
@@ -305,6 +315,7 @@ export default function HomePage() {
     }
   }
 
+  // Opens the Spotify naming modal before exporting the generated playlist.
   function handleExportToSpotify() {
     if (tracks.length === 0) {
       setError("Generate a playlist before exporting to Spotify.");
@@ -316,6 +327,7 @@ export default function HomePage() {
     setIsSpotifyNameModalOpen(true);
   }
 
+  // Confirms the Spotify playlist name and exports the current playlist.
   async function confirmExportToSpotify() {
     const playlistName = spotifyPlaylistNameDraft.trim();
 
@@ -358,7 +370,7 @@ export default function HomePage() {
     }
   }
   
-
+  // Toggles whether a track should be kept during playlist regeneration.
   function handleToggleLockTrack(track: PlaylistTrack) {
     setLockedTrackIds((prev) =>
       prev.includes(track.id)
@@ -367,12 +379,14 @@ export default function HomePage() {
     );
   }
 
+  // Removes a track from the playlist and prevents it from being added back later.
   function handleRemoveTrack(track: PlaylistTrack) {
     setTracks((prev) => prev.filter((item) => item.id !== track.id));
     setLockedTrackIds((prev) => prev.filter((id) => id !== track.id));
     setExcludedTrackNames((prev) => uniqueStrings([...prev, track.name]));
   }
 
+  // Replaces one selected track without regenerating the whole playlist.
   async function handleReplaceTrack(track: PlaylistTrack) {
     const trackIndex = tracks.findIndex((item) => item.id === track.id);
 

@@ -1,7 +1,12 @@
 import type { PlaylistRequest, PlaylistTrack } from "../types/playlist";
 
+// API helper functions for communicating with the Flask backend.
+// This file handles request parsing, playlist generation, Spotify export,
+// and backend error handling for the frontend.
+
 const API_BASE = "http://127.0.0.1:5001/api";
 
+// Custom error used when Spotify export requires the user to log in first.
 export class SpotifyAuthRequiredError extends Error {
   authUrl: string;
 
@@ -12,6 +17,7 @@ export class SpotifyAuthRequiredError extends Error {
   }
 }
 
+// Shape of the response returned after exporting a playlist to Spotify.
 export type SpotifyExportResult = {
   playlist_id: string;
   playlist_url: string;
@@ -28,6 +34,7 @@ export type SpotifyExportResult = {
   }>;
 };
 
+// Reads a JSON response from the backend and throws an error if the request failed.
 async function readJson<T>(response: Response): Promise<T> {
   const payload = await response.json();
   if (!response.ok) {
@@ -37,6 +44,7 @@ async function readJson<T>(response: Response): Promise<T> {
   return payload as T;
 }
 
+// Sends the user's natural-language request to the backend parser.
 export async function parseRequest(text: string): Promise<PlaylistRequest> {
   const response = await fetch(`${API_BASE}/parse-request`, {
     method: "POST",
@@ -49,6 +57,7 @@ export async function parseRequest(text: string): Promise<PlaylistRequest> {
   return payload.request;
 }
 
+// Sends a parsed playlist request to the backend and returns the generated tracks.
 export async function generatePlaylist(
   request: PlaylistRequest,
 ): Promise<{ request: PlaylistRequest; tracks: PlaylistTrack[]; generation_note: string | null }> {
@@ -62,6 +71,7 @@ export async function generatePlaylist(
   return readJson<{ request: PlaylistRequest; tracks: PlaylistTrack[]; generation_note: string | null }>(response);
 }
 
+// Exports the generated playlist to Spotify, or redirects the user to Spotify login if needed.
 export async function exportPlaylistToSpotify(
   tracks: PlaylistTrack[],
   playlistName = "IntelliPlaylist",

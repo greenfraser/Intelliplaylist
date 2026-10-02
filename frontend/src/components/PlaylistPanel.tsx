@@ -1,6 +1,11 @@
 import { useState, type ReactNode } from "react";
 import type { PlaylistTrack } from "../types/playlist";
 
+// Playlist panel component for displaying generated tracks.
+// It also provides playlist actions such as regenerating, exporting to Spotify,
+// locking tracks, replacing tracks, removing tracks, and viewing track details.
+
+
 type PlaylistPanelProps = {
   tracks: PlaylistTrack[];
   isBusy?: boolean;
@@ -14,6 +19,7 @@ type PlaylistPanelProps = {
   onReplaceTrack?: (track: PlaylistTrack) => void;
 };
 
+// Converts a track duration from milliseconds into a minutes and seconds format.
 function formatDuration(ms: number): string {
   if (!ms) return "—";
   const totalSeconds = Math.round(ms / 1000);
@@ -22,21 +28,24 @@ function formatDuration(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+// Formats decimal audio feature values to two decimal places.
 function formatDecimal(value: number): string {
   if (Number.isNaN(value)) return "—";
   return value.toFixed(2);
 }
 
+// Builds a YouTube search URL for the selected track.
 function getYoutubeSearchUrl(track: PlaylistTrack): string {
   const query = `${track.name} by ${track.artists}`;
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(query).replace(/%20/g, "+")}`;
 }
 
+// Checks whether a value looks like a Spotify track ID.
 function isProbablySpotifyId(id: string): boolean {
   return /^[A-Za-z0-9]{22}$/.test(id);
 }
 
-
+// Builds either a direct Spotify track link or a Spotify search link.
 function getSpotifyAppUrl(track: PlaylistTrack): string {
   if (isProbablySpotifyId(track.id)) {
     return `spotify:track:${track.id}`;
@@ -46,11 +55,12 @@ function getSpotifyAppUrl(track: PlaylistTrack): string {
   return `spotify:search:${encodeURIComponent(query)}`;
 }
 
+// Opens the selected track in Spotify.
 function openSpotify(track: PlaylistTrack) {
   window.location.href = getSpotifyAppUrl(track);
 }
 
-
+// Small reusable badge used for track metadata inside the information modal.
 function Badge({ children }: { children: ReactNode }) {
   return (
     <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium text-neutral-300">
@@ -59,6 +69,7 @@ function Badge({ children }: { children: ReactNode }) {
   );
 }
 
+// Reusable row component for showing a track attribute and its value.
 function InfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-4 rounded-xl border border-white/5 bg-neutral-950 px-4 py-3">
@@ -68,6 +79,7 @@ function InfoRow({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+// Renders the Spotify icon used by playlist action buttons.
 function SpotifyIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden="true">
@@ -76,6 +88,7 @@ function SpotifyIcon() {
   );
 }
 
+// Renders the YouTube icon used by playlist action buttons.
 function YoutubeIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden="true">
@@ -84,6 +97,7 @@ function YoutubeIcon() {
   );
 }
 
+// Renders the lock or unlock icon depending on the track state.
 function LockIcon({ locked }: { locked: boolean }) {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
@@ -96,6 +110,7 @@ function LockIcon({ locked }: { locked: boolean }) {
   );
 }
 
+// Renders the refresh icon used for replacing a track.
 function RefreshIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
@@ -105,6 +120,7 @@ function RefreshIcon() {
   );
 }
 
+// Renders the remove icon used for deleting a track from the playlist.
 function XIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
@@ -113,6 +129,8 @@ function XIcon() {
   );
 }
 
+// Renders the generated playlist, track controls, export/regeneration actions,
+// and the track information modal.
 export default function PlaylistPanel({
   tracks,
   isBusy = false,

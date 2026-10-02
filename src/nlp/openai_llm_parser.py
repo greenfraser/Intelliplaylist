@@ -2,9 +2,16 @@ from pydantic import BaseModel, Field
 from openai import OpenAI
 import json
 
+# OpenAI-based parser for IntelliPlaylist.
+# This file defines the structured response schema expected from the LLM
+# and provides a callable function that converts natural-language playlist
+# requests into validated JSON.
+
+# OpenAI client used to send playlist parsing requests.
 client = OpenAI()
 
 
+# Pydantic model defining the emotion-weight fields that the LLM may return.
 class EmotionWeights(BaseModel):
     joy: float = 0.0
     energetic: float = 0.0
@@ -22,6 +29,7 @@ class EmotionWeights(BaseModel):
     sensual: float = 0.0
 
 
+# Pydantic model defining the full structured playlist request schema.
 class ParsedPlaylistRequest(BaseModel):
     original_text: str
     emotions: list[str] = Field(default_factory=list)
@@ -69,6 +77,8 @@ class ParsedPlaylistRequest(BaseModel):
     ordering_style: str = "smooth"
 
 
+# Sends the system prompt and user request to the OpenAI model,
+# then returns the parsed playlist request as JSON.
 def openai_llm_callable(system_prompt: str, user_text: str) -> str:
     print("\n========== OPENAI REQUEST ==========")
     print("[SYSTEM PROMPT]")

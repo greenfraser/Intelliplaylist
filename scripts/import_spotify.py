@@ -4,6 +4,10 @@ import sqlite3
 from pathlib import Path
 import pandas as pd
 
+# Script for creating the local Spotify SQLite database from the raw CSV dataset.
+# It reads the dataset in chunks, normalises column names and data types,
+# then inserts the cleaned track data into the database using the SQL schema.
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 CSV_PATH = PROJECT_ROOT / "data" / "raw" / "dataset.csv"
@@ -92,6 +96,7 @@ NUMERIC_FLOAT_COLS = {
 }
 
 
+# Returns the first matching column name found in the dataset.
 def first_existing(df: pd.DataFrame, candidates: list[str]) -> str | None:
     lower_map = {c.lower(): c for c in df.columns}
     for cand in candidates:
@@ -99,14 +104,14 @@ def first_existing(df: pd.DataFrame, candidates: list[str]) -> str | None:
             return lower_map[cand.lower()]
     return None
 
-
+# Converts different explicit-value formats into 0 or 1.
 def parse_explicit(value) -> int:
     if pd.isna(value):
         return 0
     text = str(value).strip().lower()
     return 1 if text in {"1", "true", "t", "yes"} else 0
 
-
+# Cleans and standardises one CSV chunk so it matches the track database schema.
 def normalise_chunk(df: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame()
 
@@ -138,7 +143,8 @@ def normalise_chunk(df: pd.DataFrame) -> pd.DataFrame:
 
     return out
 
-
+# Builds the SQLite database by reading the CSV, cleaning each chunk,
+# and inserting the resulting track rows into the track table.
 def main() -> None:
     if DB_PATH.exists():
         DB_PATH.unlink()
@@ -185,6 +191,6 @@ def main() -> None:
     finally:
         conn.close()
 
-
+# Runs the import process when this script is executed directly.
 if __name__ == "__main__":
     main()

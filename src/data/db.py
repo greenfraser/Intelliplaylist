@@ -7,6 +7,11 @@ import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
+# Database access layer for IntelliPlaylist.
+# This file resolves the SQLite database path, builds flexible SQL queries,
+# retrieves candidate tracks, and checks whether requested artists, albums,
+# tracks, and genres exist in the dataset.
+
 TrackRow = Tuple[
     str,   # id
     str,   # name
@@ -32,11 +37,12 @@ IntRange = Tuple[int, int]
 _SCHEMA_CACHE: Dict[Path, set[str]] = {}
 
 
+# Opens a connection to the resolved Spotify SQLite database.
 def get_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
     resolved = db_path or resolve_db_path()
     return sqlite3.connect(resolved)
 
-
+# Finds the Spotify database file, using the environment variable first if provided.
 def resolve_db_path() -> Path:
     env_raw = os.environ.get("SPOTIFY_DB_PATH")
     if env_raw:
@@ -66,10 +72,12 @@ def resolve_db_path() -> Path:
         + "\n\nSet SPOTIFY_DB_PATH to the full database path if needed."
     )
 
+# Checks whether the track table contains at least one of the given column names.
 def has_track_column(*names: str) -> bool:
     columns = _get_schema_columns()
     return _first_existing(columns, *names) is not None
 
+# Reads and caches the available column names from the track table.
 def _get_schema_columns(db_path: Optional[Path] = None) -> set[str]:
     resolved = db_path or resolve_db_path()
     if resolved in _SCHEMA_CACHE:
@@ -88,20 +96,21 @@ def _get_schema_columns(db_path: Optional[Path] = None) -> set[str]:
     return columns
 
 
+# Returns the first column name that exists in the current database schema.
 def _first_existing(columns: set[str], *names: str) -> Optional[str]:
     for name in names:
         if name.lower() in columns:
             return name
     return None
 
-
+# Builds a SELECT expression that falls back to a default value if a column is missing.
 def _select_expr(columns: set[str], alias: str, *names: str, default_sql: str) -> str:
     existing = _first_existing(columns, *names)
     if existing is None:
         return f"{default_sql} AS {alias}"
     return f"COALESCE({existing}, {default_sql}) AS {alias}"
 
-
+# Builds the standard SELECT query used to retrieve track rows.
 def _build_track_select(columns: set[str]) -> str:
     return """
     SELECT
@@ -143,20 +152,7 @@ def _build_track_select(columns: set[str]) -> str:
         genre_expr=_select_expr(columns, "genre", "genre", "track_genre", default_sql="''"),
     )
 
-
-def get_random_tracks(limit: int = 10) -> List[TrackRow]:
-    db_path = resolve_db_path()
-    columns = _get_schema_columns(db_path)
-    conn = get_connection(db_path)
-    try:
-        _register_sqlite_functions(conn)
-        cur = conn.cursor()
-        cur.execute(f"{_build_track_select(columns)} ORDER BY RANDOM() LIMIT ?;", (limit,))
-        return cur.fetchall()
-    finally:
-        conn.close()
-
-
+# Retrieves candidate tracks that match the requested audio ranges and metadata filters.
 def get_candidates_for_feature_ranges(
     valence_range: Range,
     energy_range: Range,
@@ -269,7 +265,7 @@ def get_candidates_for_feature_ranges(
     finally:
         conn.close()
 
-
+# Retrieves tracks for requested artists, with optional feature and metadata filters.
 def get_tracks_for_artists(
     artist_names: Sequence[str],
     limit_per_artist: int = 20,
@@ -367,7 +363,7 @@ def get_tracks_for_artists(
 
     return rows
 
-
+# Retrieves tracks from requested albums.
 def get_tracks_for_albums(
     album_names: Sequence[str],
     limit_per_album: int = 20,
@@ -425,7 +421,7 @@ def get_tracks_for_albums(
         ignore_feature_ranges=ignore_feature_ranges,
     )
 
-
+# Retrieves tracks matching requested track names.
 def get_tracks_by_names(
     track_names: Sequence[str],
     limit_per_name: int = 20,
@@ -484,6 +480,7 @@ def get_tracks_by_names(
     )
 
 
+# Shared helper for retrieving tracks by a named field such as album or track title.
 def _get_tracks_for_named_field(
     *,
     field_candidates: Sequence[str],
@@ -586,7 +583,7 @@ def _get_tracks_for_named_field(
 
 
 
-
+# Retrieves full database rows for a list of selected track IDs.
 def get_tracks_by_ids(track_ids: Sequence[str]) -> List[TrackRow]:
     if not track_ids:
         return []
@@ -609,6 +606,7 @@ def get_tracks_by_ids(track_ids: Sequence[str]) -> List[TrackRow]:
     return [rows_by_id[track_id] for track_id in track_ids if track_id in rows_by_id]
 
 
+# Adds common request filters such as year, popularity, explicit content, duration, and exclusions.
 def _add_common_request_filters(
     conditions: List[str],
     params: List[object],
@@ -680,6 +678,7 @@ def _add_common_request_filters(
             params.extend(["%christmas%", "%xmas%", "%christmas%", "%holiday%"])
 
 
+# Adds a numeric BETWEEN condition for an audio feature range.
 def _add_range_condition(
     conditions: List[str],
     params: List[object],
@@ -693,6 +692,8 @@ def _add_range_condition(
     conditions.append(f"{existing} BETWEEN ? AND ?")
     params.extend([value_range[0], value_range[1]])
 
+
+# Adds a genre inclusion condition to the SQL query.
 def _add_genre_any_condition(
     conditions: List[str],
     params: List[object],
@@ -716,6 +717,7 @@ def _add_genre_any_condition(
     conditions.append("(" + " OR ".join(parts) + ")")
 
 
+# Adds genre exclusion conditions to the SQL query.
 def _add_genre_none_condition(
     conditions: List[str],
     params: List[object],
@@ -735,6 +737,7 @@ def _add_genre_none_condition(
         )
         params.append(f"%,{cleaned},%")
 
+# Adds a text inclusion condition for a single database column.
 def _add_text_any_condition(
     conditions: List[str],
     params: List[object],
@@ -750,7 +753,7 @@ def _add_text_any_condition(
     conditions.append("(" + " OR ".join(parts) + ")")
     params.extend([f"%{v}%" for v in cleaned])
 
-
+# Adds text exclusion conditions for a single database column.
 def _add_text_none_condition(
     conditions: List[str],
     params: List[object],
@@ -766,6 +769,7 @@ def _add_text_none_condition(
         conditions.append(f"LOWER(COALESCE({column_name}, '')) NOT LIKE ?")
         params.append(f"%{cleaned}%")
 
+# Adds text search conditions across several metadata columns.
 def _add_text_any_multi_column_condition(
     conditions: List[str],
     params: List[object],
@@ -783,6 +787,7 @@ def _add_text_any_multi_column_condition(
         conditions.append("(" + " OR ".join(parts) + ")")
         params.extend([f"%{value}%" for _ in columns])
 
+# Converts a decade label into a year range.
 def _decade_to_year_range(decade: Optional[str]) -> Optional[IntRange]:
     if not decade:
         return None
@@ -800,6 +805,7 @@ def _decade_to_year_range(decade: Optional[str]) -> Optional[IntRange]:
     return None
 
 
+# Splits a stored artist string into individual lowercase artist names.
 def _split_artist_names(value: object) -> List[str]:
     text = str(value or "").strip()
     if not text:
@@ -822,12 +828,14 @@ def _split_artist_names(value: object) -> List[str]:
     return [text.lower()]
 
 
+# Checks whether a requested artist exactly matches one of a track's artists.
 def _artist_exact_match(requested_artist: str, artists_value: object) -> bool:
     requested = requested_artist.strip().lower()
     if not requested:
         return False
     return requested in _split_artist_names(artists_value)
 
+# Splits stored database values such as genres into separate values.
 def _split_database_values(value: object) -> List[str]:
     text = str(value or "").strip()
     if not text:
@@ -844,11 +852,12 @@ def _split_database_values(value: object) -> List[str]:
     parts = re.split(r"\s*(?:;|\||,)\s*", text)
     return [part.strip() for part in parts if part.strip()]
 
-
+# Normalises text for case-insensitive lookup comparisons.
 def _normalise_lookup_text(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
 
+# Returns the available genres found in the database.
 def get_available_genres(limit: int = 1000) -> List[str]:
     db_path = resolve_db_path()
     columns = _get_schema_columns(db_path)
@@ -880,7 +889,7 @@ def get_available_genres(limit: int = 1000) -> List[str]:
     finally:
         conn.close()
 
-
+# Checks whether a requested genre exists in the database.
 def has_genre_match(value: str) -> bool:
     requested = _normalise_lookup_text(value)
     if not requested:
@@ -894,6 +903,7 @@ def has_genre_match(value: str) -> bool:
     return requested in available
 
 
+# Checks whether a value appears in a specific text field.
 def _has_text_match(field_candidates: Sequence[str], value: str) -> bool:
     requested = value.strip().lower()
     if not requested:
@@ -924,13 +934,15 @@ def _has_text_match(field_candidates: Sequence[str], value: str) -> bool:
         conn.close()
 
 
+# Checks whether a requested track name exists in the database.
 def has_track_name_match(value: str) -> bool:
     return _has_text_match(("name", "track_name"), value)
 
-
+# Checks whether a requested album exists in the database.
 def has_album_match(value: str) -> bool:
     return _has_text_match(("album", "album_name"), value)
 
+# Checks whether a requested artist exists in the database.
 def has_artist_match(value: str) -> bool:
     requested = value.strip().lower()
     if not requested:
@@ -960,10 +972,13 @@ def has_artist_match(value: str) -> bool:
 
     return any(_artist_exact_match(requested, row[2]) for row in rows)
 
+
+# Registers custom SQLite functions used by the query layer.
 def _register_sqlite_functions(conn: sqlite3.Connection) -> None:
     conn.create_function("TITLE_TERM_MATCH", 2, _sqlite_title_term_match)
 
 
+# Creates simple singular/plural forms for title-term matching.
 def _title_term_forms(value: str) -> List[str]:
     cleaned = re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
     if not cleaned:
@@ -980,6 +995,7 @@ def _title_term_forms(value: str) -> List[str]:
     return sorted(forms)
 
 
+# SQLite helper used to match title terms as whole words.
 def _sqlite_title_term_match(title: object, term: object) -> int:
     title_text = re.sub(r"[^a-z0-9]+", " ", str(title or "").lower()).strip()
 
@@ -993,7 +1009,7 @@ def _sqlite_title_term_match(title: object, term: object) -> int:
 
     return 0
 
-
+# Adds title-term inclusion conditions to the SQL query.
 def _add_title_term_any_condition(
     conditions: List[str],
     params: List[object],
@@ -1012,6 +1028,7 @@ def _add_title_term_any_condition(
     params.extend(cleaned)
 
 
+# Adds title-term exclusion conditions to the SQL query.
 def _add_title_term_none_condition(
     conditions: List[str],
     params: List[object],

@@ -7,26 +7,15 @@ from typing import Callable, List, Optional, Tuple
 from .emotions import EMOTION_PROFILES, known_emotion_tokens, text_to_emotion_weights
 from .request_schema import PlaylistRequest
 
-def _emotion_profiles_prompt_block() -> str:
-    lines = ["Emotion profile feature ranges:"]
+# Natural-language request parser for IntelliPlaylist.
+# This file uses an LLM parser when available and falls back to rule-based parsing.
+# It converts a user's playlist prompt into a structured PlaylistRequest object.
 
-    for emotion, profile in EMOTION_PROFILES.items():
-        parts = []
-        for feature, value_range in profile.items():
-            low, high = value_range
 
-            if feature == "tempo":
-                parts.append(f"{feature}={int(low)}-{int(high)} BPM")
-            else:
-                parts.append(f"{feature}={low:.2f}-{high:.2f}")
-
-        lines.append(f"- {emotion}: " + ", ".join(parts))
-
-    return "\n".join(lines)
-
+# Maximum allowed track duration used when interpreting long-song requests.
 MAX_TRACK_DURATION_MS = 20 * 60 * 1000
 
-
+# System prompt used to guide the LLM into returning a structured playlist request.
 LLM_SYSTEM_PROMPT = """
 You convert playlist requests from natural language into structured JSON.
 
@@ -249,6 +238,7 @@ constraint_explanation:
 """.strip()
 
 
+# Activity keywords used by the rule-based fallback parser.
 ACTIVITY_KEYWORDS = {
     "workout": ["gym", "workout", "run", "running", "exercise", "training"],
     "study": ["study", "focus", "revision", "reading"],
@@ -257,6 +247,7 @@ ACTIVITY_KEYWORDS = {
     "relax": ["relax", "relaxing", "wind down", "unwind"],
 }
 
+# Ordering keywords used to detect the requested playlist flow.
 ORDERING_KEYWORDS = {
     "build_up": [
         "build up",
@@ -283,6 +274,8 @@ ORDERING_KEYWORDS = {
 }
 
 
+# Parses a natural-language playlist request using the LLM first,
+# then falls back to rule-based parsing if the LLM cannot be used.
 def parse_playlist_request(
     user_text: str,
     *,
@@ -310,11 +303,12 @@ def parse_playlist_request(
     return request
 
 
+# Converts raw LLM JSON output into a PlaylistRequest object.
 def _request_from_json(raw_json: str, original_text: str) -> PlaylistRequest:
     data = json.loads(_extract_json_object(raw_json))
     return PlaylistRequest.from_dict(data, original_text_fallback=original_text)
 
-
+# Extracts the JSON object from the LLM response text.
 def _extract_json_object(text: str) -> str:
     start = text.find("{")
     end = text.rfind("}")
@@ -322,7 +316,7 @@ def _extract_json_object(text: str) -> str:
         raise ValueError("No JSON object found in LLM response")
     return text[start:end + 1]
 
-
+# Rule-based fallback parser used when LLM parsing fails or is unavailable.
 def _rule_based_parse(user_text: str, *, debug: bool = False) -> PlaylistRequest:
     lower = user_text.lower()
 
@@ -485,6 +479,7 @@ def _rule_based_parse(user_text: str, *, debug: bool = False) -> PlaylistRequest
     )
 
 
+# Builds a short explanation of the main constraints detected in the request.
 def _build_constraint_explanation(
     *,
     include_artists: List[str],
@@ -533,13 +528,14 @@ def _build_constraint_explanation(
     return " ".join(parts[:3])
 
 
+# Extracts the activity or use-case from the user's request.
 def _extract_activity(lower: str) -> Optional[str]:
     for label, keywords in ACTIVITY_KEYWORDS.items():
         if any(keyword in lower for keyword in keywords):
             return label
     return None
 
-
+# Extracts the requested playlist size from phrases such as "10 songs".
 def _extract_playlist_size(
     lower: str,
     *,
@@ -575,6 +571,7 @@ def _extract_playlist_size(
     return None
 
 
+# Extracts the total requested playlist duration in minutes.
 def _extract_playlist_duration_minutes(lower: str) -> Optional[int]:
     if re.search(r"\bhalf\s+(?:an?\s+)?hour\b", lower):
         return 30
@@ -602,6 +599,7 @@ def _extract_playlist_duration_minutes(lower: str) -> Optional[int]:
     return None
 
 
+# Extracts requested individual track duration ranges in milliseconds.
 def _extract_track_duration_range_ms(lower: str) -> Optional[Tuple[int, int]]:
     between_match = re.search(
         r"\b(?:songs?|tracks?)\s+(?:between|from)\s+(\d+(?:\.\d+)?)\s*(?:and|-|to)\s*(\d+(?:\.\d+)?)\s*minutes?\b",
@@ -640,10 +638,11 @@ def _extract_track_duration_range_ms(lower: str) -> Optional[Tuple[int, int]]:
     return None
 
 
+# Converts a duration in minutes into milliseconds.
 def _minutes_to_ms(minutes: float) -> int:
     return int(round(minutes * 60_000))
 
-
+# Extracts named albums, tracks, or genres from include/exclude phrases.
 def _extract_named_items(
     text: str,
     *,
@@ -676,6 +675,7 @@ def _extract_named_items(
     return _dedupe_preserve_order(items)
 
 
+# Splits phrases containing multiple values into separate items.
 def _split_multi_value_phrase(text: str) -> List[str]:
     raw_parts = re.split(r"\s*(?:,|/| and )\s*", text, flags=re.IGNORECASE)
     cleaned = []
@@ -686,6 +686,7 @@ def _split_multi_value_phrase(text: str) -> List[str]:
     return cleaned
 
 
+# Extracts artist names that the user wants included.
 def _extract_include_artists(text: str, already_used: List[str]) -> List[str]:
     phrases = _extract_after_keywords(
         text,
@@ -693,6 +694,7 @@ def _extract_include_artists(text: str, already_used: List[str]) -> List[str]:
     )
     return _filter_possible_artists(phrases, already_used=already_used)
 
+# Estimates how much of the playlist should come from requested artists.
 def _extract_artist_target_ratio(
     lower: str,
     include_artists: List[str],
@@ -708,6 +710,7 @@ def _extract_artist_target_ratio(
 
     return 0.10
 
+# Extracts artist names that the user wants excluded.
 def _extract_exclude_artists(text: str, already_used: List[str]) -> List[str]:
     generic_phrases = [
         "explicit",
@@ -737,6 +740,7 @@ def _extract_exclude_artists(text: str, already_used: List[str]) -> List[str]:
     return _filter_possible_artists(filtered, already_used=already_used)
 
 
+# Extracts text following keywords such as include, avoid, or without.
 def _extract_after_keywords(text: str, keywords: List[str]) -> List[str]:
     results: List[str] = []
     for keyword in keywords:
@@ -760,6 +764,7 @@ def _extract_after_keywords(text: str, keywords: List[str]) -> List[str]:
     return _dedupe_preserve_order(results)
 
 
+# Filters extracted phrases down to likely artist names.
 def _filter_possible_artists(
     items: List[str],
     *,
@@ -813,7 +818,7 @@ def _filter_possible_artists(
 
     return _dedupe_preserve_order(filtered)
 
-
+# Extracts popularity constraints from wording such as popular, obscure, or numeric thresholds.
 def _extract_popularity_range(lower: str) -> Tuple[Optional[int], Optional[int]]:
     if any(token in lower for token in [
         "very high popularity",
@@ -850,7 +855,8 @@ def _extract_popularity_range(lower: str) -> Tuple[Optional[int], Optional[int]]
 
     return None, None
 
- 
+
+ # Extracts year, year range, or decade constraints from the request.
 def _extract_year_info(lower: str) -> Tuple[Optional[int], Optional[Tuple[int, int]], Optional[str]]:
     year = None
     year_range = None
@@ -877,7 +883,7 @@ def _extract_year_info(lower: str) -> Tuple[Optional[int], Optional[Tuple[int, i
 
     return year, year_range, decade
 
-
+# Extracts limits on how many tracks can come from the same artist.
 def _extract_max_tracks_per_artist(lower: str) -> Optional[int]:
     if "one song per artist" in lower:
         return 1
@@ -896,6 +902,7 @@ def _extract_max_tracks_per_artist(lower: str) -> Optional[int]:
     return None
 
 
+# Extracts the requested playlist ordering style.
 def _extract_ordering_style(lower: str) -> str:
     for style, phrases in ORDERING_KEYWORDS.items():
         if any(phrase in lower for phrase in phrases):
@@ -903,6 +910,7 @@ def _extract_ordering_style(lower: str) -> str:
     return "smooth"
 
 
+# Extracts all supported audio feature ranges from the request.
 def _extract_audio_ranges(
     lower: str,
 ) -> Tuple[
@@ -936,6 +944,7 @@ def _extract_audio_ranges(
     )
 
 
+# Extracts energy constraints from the request.
 def _extract_energy_range(lower: str) -> Optional[Tuple[float, float]]:
     if "high energy" in lower or "energetic" in lower:
         return (0.75, 1.0)
@@ -944,6 +953,7 @@ def _extract_energy_range(lower: str) -> Optional[Tuple[float, float]]:
     return None
 
 
+# Extracts tempo constraints from the request.
 def _extract_tempo_range(lower: str) -> Optional[Tuple[float, float]]:
     bpm_match = re.search(r"\b(\d{2,3})\s*(?:-|to)\s*(\d{2,3})\s*bpm\b", lower)
     if bpm_match:
@@ -958,6 +968,7 @@ def _extract_tempo_range(lower: str) -> Optional[Tuple[float, float]]:
     return None
 
 
+# Extracts valence constraints, such as positive or sad mood.
 def _extract_valence_range(lower: str) -> Optional[Tuple[float, float]]:
     if "positive" in lower or "feel-good" in lower:
         return (0.65, 1.0)
@@ -966,6 +977,7 @@ def _extract_valence_range(lower: str) -> Optional[Tuple[float, float]]:
     return None
 
 
+# Extracts danceability constraints from the request.
 def _extract_danceability_range(lower: str) -> Optional[Tuple[float, float]]:
     if "danceable" in lower or "high danceability" in lower:
         return (0.7, 1.0)
@@ -974,24 +986,28 @@ def _extract_danceability_range(lower: str) -> Optional[Tuple[float, float]]:
     return None
 
 
+# Extracts acousticness constraints from the request.
 def _extract_acousticness_range(lower: str) -> Optional[Tuple[float, float]]:
     if "acoustic" in lower:
         return (0.6, 1.0)
     return None
 
 
+# Extracts instrumentalness constraints from the request.
 def _extract_instrumentalness_range(lower: str) -> Optional[Tuple[float, float]]:
     if "instrumental" in lower:
         return (0.5, 1.0)
     return None
 
 
+# Extracts liveness constraints from the request.
 def _extract_liveness_range(lower: str) -> Optional[Tuple[float, float]]:
     if "live sounding" in lower or "live feel" in lower:
         return (0.5, 1.0)
     return None
 
 
+# Extracts speechiness constraints from the request.
 def _extract_speechiness_range(lower: str) -> Optional[Tuple[float, float]]:
     if (
         "spoken word" in lower
@@ -1003,6 +1019,7 @@ def _extract_speechiness_range(lower: str) -> Optional[Tuple[float, float]]:
     return None
 
 
+# Removes duplicate strings while preserving the original order.
 def _dedupe_preserve_order(items: List[str]) -> List[str]:
     seen = set()
     result: List[str] = []
@@ -1015,6 +1032,7 @@ def _dedupe_preserve_order(items: List[str]) -> List[str]:
     return result
 
 
+# Checks whether the request contains any mood, activity, or vibe signal.
 def _has_emotion_signal(lower: str) -> bool:
     if any(re.search(rf"\b{re.escape(token)}\b", lower) for token in known_emotion_tokens()):
         return True
@@ -1031,6 +1049,7 @@ def _has_emotion_signal(lower: str) -> bool:
     return any(re.search(rf"\b{re.escape(word)}\b", lower) for word in vibe_keywords)
 
 
+# Clears emotion fields when the request is neutral and contains no mood signal.
 def _strip_emotion_fields_if_neutral(request: PlaylistRequest) -> PlaylistRequest:
     # If the LLM or rule parser already found activity/emotion info, keep it.
     if request.activity or request.emotions or request.emotion_weights:
@@ -1043,6 +1062,7 @@ def _strip_emotion_fields_if_neutral(request: PlaylistRequest) -> PlaylistReques
         request.activity = None
     return request
 
+# Ensures emotion fields are only kept when there is actual emotion context.
 def _normalise_emotion_fields(request: PlaylistRequest) -> PlaylistRequest:
     has_emotion_context = bool(request.activity or request.emotions)
 

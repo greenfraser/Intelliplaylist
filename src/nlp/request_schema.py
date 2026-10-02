@@ -5,10 +5,17 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+# Data model for structured playlist requests.
+# This file defines the PlaylistRequest object used across the parser,
+# backend, database filtering, ASP fact generation, and playlist builder.
+
+
+# Shared range types used for audio features, years, and duration values.
 Range = Tuple[float, float]
 IntRange = Tuple[int, int]
 
 
+# Represents the structured version of a user's natural-language playlist request.
 @dataclass
 class PlaylistRequest:
     original_text: str
@@ -63,9 +70,13 @@ class PlaylistRequest:
 
     ordering_style: str = "smooth"
 
+
+     # Converts the playlist request into a dictionary for JSON responses.
     def to_dict(self) -> Dict[str, object]:
         return asdict(self)
 
+
+     # Builds a PlaylistRequest from dictionary data returned by the parser or frontend.
     @classmethod
     def from_dict(
         cls,
@@ -139,6 +150,7 @@ class PlaylistRequest:
             ordering_style=str(data.get("ordering_style") or "smooth"),
         )
 
+     # Resolves the final number of tracks to generate.
     def resolved_track_count(self, default: int = 10) -> int:
         if self.playlist_size is not None and self.playlist_size > 0:
             return self.playlist_size
@@ -149,11 +161,13 @@ class PlaylistRequest:
 
         return default
 
+    # Calculates the minimum spacing used when the user asks for no repeated artists.
     def resolved_artist_gap(self, track_count: int) -> int:
         if not self.no_repeat_artists:
             return 0
         return max(2, (track_count + 4) // 5)
     
+    # Calculates how many tracks should come from explicitly requested artists.
     def resolved_artist_target_count(self, track_count: int) -> int:
         if not self.include_artists:
             return 0
@@ -165,18 +179,20 @@ class PlaylistRequest:
         return max(1, min(track_count, int(math.ceil(track_count * ratio))))
 
 
+# Converts empty values into None and keeps non-empty strings.
 def _optional_str(value: object) -> Optional[str]:
     if value is None:
         return None
     text = str(value).strip()
     return text or None
 
-
+# Converts an optional value into an integer.
 def _optional_int(value: object) -> Optional[int]:
     if value is None or value == "":
         return None
     return int(value)
 
+# Converts an optional value into a ratio between 0.0 and 1.0.
 def _optional_float_ratio(value: object) -> Optional[float]:
     if value is None or value == "":
         return None

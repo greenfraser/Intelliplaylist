@@ -1,10 +1,16 @@
 import type { ReactNode } from "react";
 import type { PlaylistRequest } from "../types/playlist";
 
+// Request panel component for displaying how the user's natural-language prompt
+// was interpreted by the system. It shows parsed constraints, emotion weights,
+// metadata filters, audio feature ranges, and other generation settings.
+
+
 type RequestPanelProps = {
   request: PlaylistRequest | null;
 };
 
+// Small reusable tag used to display parsed list values such as artists, genres, and emotions.
 function Tag({ label }: { label: string }) {
   return (
     <span className="rounded-full border border-white/10 bg-neutral-950 px-3 py-1 text-xs font-medium text-neutral-200">
@@ -13,6 +19,7 @@ function Tag({ label }: { label: string }) {
   );
 }
 
+// Groups related parsed request information under a labelled section.
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="space-y-2">
@@ -24,6 +31,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+// Renders a list of parsed values as visual tags.
 function TagList({ values }: { values: string[] }) {
   return (
     <div className="flex flex-wrap gap-2">
@@ -34,6 +42,7 @@ function TagList({ values }: { values: string[] }) {
   );
 }
 
+// Reusable row for showing a parsed constraint label and its value.
 function InfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-4 rounded-xl border border-white/5 bg-neutral-950 px-3 py-3">
@@ -43,14 +52,17 @@ function InfoRow({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+// Converts a decimal feature range into a percentage range for display.
 function formatPercentRange(range: [number, number]): string {
   return `${Math.round(range[0] * 100)}%–${Math.round(range[1] * 100)}%`;
 }
 
+// Converts a tempo range into a BPM range for display.
 function formatTempoRange(range: [number, number]): string {
   return `${Math.round(range[0])}–${Math.round(range[1])} BPM`;
 }
 
+// Converts a duration range from milliseconds into a readable time range.
 function formatDurationRange(range: [number, number]): string {
   const formatMs = (ms: number) => {
     const totalSeconds = Math.round(ms / 1000);
@@ -67,6 +79,7 @@ function formatDurationRange(range: [number, number]): string {
   return `${formatMs(range[0])}–${formatMs(range[1])}`;
 }
 
+// Displays an emotion weight as a labelled percentage bar.
 function WeightBar({ label, value }: { label: string; value: number }) {
   const pct = Math.round(value * 100);
   return (
@@ -82,6 +95,8 @@ function WeightBar({ label, value }: { label: string; value: number }) {
   );
 }
 
+// Renders the parsed request panel, including constraint explanations,
+// emotion weights, included/excluded items, and audio feature ranges.
 export default function RequestPanel({ request }: RequestPanelProps) {
   if (!request) {
     return (

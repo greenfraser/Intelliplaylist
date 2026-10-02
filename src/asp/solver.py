@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import List
-
-import clingo
 import random
+import clingo
 
+# Wrapper for running the clingo ASP solver.
+# This file loads the generated ASP facts and playlist rules, runs clingo,
+# and returns the selected track IDs from the answer set.
 
+# Runs clingo on the generated facts and rules file, then extracts selected track IDs.
 def run_clingo(
     facts_file: Path,
     rules_file: Path,
@@ -17,7 +20,6 @@ def run_clingo(
         "-c",
         f"n={playlist_size}",
 
-        # Much faster than optN. Good enough for interactive app use.
         "--opt-mode=ignore",
         "--models=1",
 

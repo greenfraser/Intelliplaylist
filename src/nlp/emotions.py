@@ -3,9 +3,14 @@ from __future__ import annotations
 import re
 from typing import Dict, Iterable, List, Mapping, MutableMapping, Tuple
 
+# Emotion and audio-feature mapping utilities for IntelliPlaylist.
+# This file maps mood/activity words to emotion weights, then converts those
+# emotion weights into Spotify-style audio feature ranges.
+
 Range = Tuple[float, float]
 
 
+# Maps recognised mood and activity words to weighted emotion categories.
 EMOTION_KEYWORDS: Dict[str, Dict[str, float]] = {
     "happy": {"joy": 1.0},
     "joyful": {"joy": 1.0},
@@ -80,6 +85,7 @@ EMOTION_KEYWORDS: Dict[str, Dict[str, float]] = {
     "sleep": {"calm": 0.7, "dreamy": 0.3},
 }
 
+# Defines the target audio-feature ranges associated with each emotion category.
 EMOTION_PROFILES: Dict[str, Dict[str, Range]] = {
     "joy": {
         "valence": (0.70, 1.00),
@@ -226,6 +232,7 @@ EMOTION_PROFILES: Dict[str, Dict[str, Range]] = {
 }
 
 
+# Converts recognised words in the user's text into normalised emotion weights.
 def text_to_emotion_weights(text: str, debug: bool = False) -> Dict[str, float]:
     tokens = _tokenize(text)
     votes: MutableMapping[str, float] = {}
@@ -259,6 +266,7 @@ def text_to_emotion_weights(text: str, debug: bool = False) -> Dict[str, float]:
     return normalised
 
 
+# Blends the feature ranges for each detected emotion into one target profile.
 def compute_feature_ranges(
     emotion_weights: Mapping[str, float],
     debug: bool = False,
@@ -318,13 +326,15 @@ def compute_feature_ranges(
     return result
 
 
+# Returns all recognised emotion keywords used by the parser.
 def known_emotion_tokens() -> List[str]:
     return sorted(EMOTION_KEYWORDS.keys())
 
 
+# Splits text into lowercase word tokens for keyword matching.
 def _tokenize(text: str) -> List[str]:
     return re.findall(r"[a-zA-Z']+", text.lower())
 
-
+# Restricts a numeric value to a given minimum and maximum range.
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))

@@ -1,18 +1,27 @@
 # Python
+.venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 
-# Environments
-.venv/
-venv/
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.vite-temp/
 
-# Data
-data/raw/
-data/processed/
-data/db/
-
-# OS / editor
-.DS_Store
+# Local/editor files
 .vscode/
-.idea/
+.DS_Store
 
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Generated ASP facts
+src/asp/asp_facts/*
+
+# Data (download separately)
+data/raw/
+data/db/
