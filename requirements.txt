@@ -1,7 +1,7 @@
 pandas
-numpy
-jupyter
 clingo
-sqlite-utils
 flask
 flask-cors
+openai
+pydantic
+requests
