@@ -6,8 +6,6 @@ IntelliPlaylist turns a plain-English request such as *"something upbeat for a m
 
 Final-year BSc Computer Science dissertation, University of Sheffield, awarded a First.
 
-<!-- Add a screenshot: save it as docs/screenshot.png and uncomment the line below -->
-<!-- ![IntelliPlaylist screenshot](docs/screenshot.png) -->
 
 ## How it works
 
@@ -50,7 +48,7 @@ python scripts/import_spotify.py
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate        
 pip install -r requirements.txt
 export OPENAI_API_KEY=your-key-here
 python backend/app.py
@@ -66,5 +64,4 @@ npm run dev
 
 ## Dissertation
 
-The full write-up is available on request.
-<!-- Or upload the PDF to docs/ and replace the line above with: [Read the dissertation (PDF)](docs/dissertation.pdf) -->
+[Read the dissertation (PDF)](docs/dissertation.pdf) -->
